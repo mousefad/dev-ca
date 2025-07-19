@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+#
+# Common shell function for x509- family of programs
+
+declare -i DEBUG_LEVEL=0
+declare DEBUG_COLOR=n
+[ -t 2 ] && DEBUG_COLOR=y
+declare -a TMP_FILES
+
+validate_curve() {
+    local -A curves
+    local id
+    local desc
+    while IFS=: read id desc; do
+        db 5 "available curve: $id : $desc"
+        curves["$id"]="$desc"
+    done < <(openssl ecparam -list_curves | sed -e 's/^ *//' -e 's/ *: */:/')
+
+    if [ -z "${curves["$CURVE"]}" ]; then
+        for id in "${!curves[@]}"; do
+            printf "%-20s : %s\n" "$id" "${curves["$id"]}"
+        done | dbcat -2 "unknown curve '$CURVE', try one of these:"
+    else
+        db 4 "curve '$CURVE' verified as available"
+    fi
+}
+
+validate_rsa_bits() {
+    if ! [[ "$RSA_BITS" =~ ^[0-9]+$ ]]; then
+        erex "--rsa key size must be numeric; got '$RSA_BITS'"
+    fi
+
+    if [ "$RSA_BITS" -lt 512 ]; then
+        erex "--rsa key size must be >= 512; got '$RSA_BITS'"
+    fi
+
+    if [ "$RSA_BITS" -lt 512 ] || [ "$RSA_BITS" -gt 7680 ]; then
+        erex "--rsa key size must be between 512 and 7680; got '$RSA_BITS'"
+    fi
+
+    db 2 "rsa key size $RSA_BITS is ok"
+}
+
+prompt_subj() {
+    local code
+    local desc
+    local var
+    local default
+    local prompt_text
+    local tmp
+    local ok
+    while IFS=: read code desc var; do
+        default="$(eval echo \$$var)"
+        prompt_text="Value for $code ($desc) [default=$default]> "
+        read -p "$prompt_text" tmp </dev/tty
+        if [ -z "$tmp" ]; then
+            tmp="$default"
+        fi
+        if [ -z "$tmp" ]; then
+            unset "$var"
+        else
+            export "$var"="$tmp"
+        fi
+    done <<-EOD
+	C:Country:SUBJ_COUNTRY
+	L:Locality:SUBJ_LOCALITY
+	O:Organization:SUBJ_ORGANIZATION
+	OU:Organization Unit:SUBJ_ORGANIZATION_UNIT
+	ST:State:SUBJ_STATE
+	E:Email:SUBJ_EMAIL
+	EOD
+}
+
+make_subj_for_cn() {
+    local subj=""
+    [ -n "$SUBJ_COUNTRY" ] && subj="$subj/C=$SUBJ_COUNTRY"
+    [ -n "$SUBJ_LOCALITY" ] && subj="$subj/L=$SUBJ_LOCALITY"
+    [ -n "$SUBJ_ORGANIZATION" ] && subj="$subj/O=$SUBJ_ORGANIZATION"
+    [ -n "$SUBJ_ORGANIZATION_UNIT" ] && subj="$subj/OU=$SUBJ_ORGANIZATION_UNIT"
+    [ -n "$SUBJ_STATE" ] && subj="$subj/ST=$SUBJ_STATE"
+    [ -n "$SUBJ_EMAIL" ] && subj="$subj/E=$SUBJ_EMAIL"
+    echo "$subj/CN=$*"
+}
+
+db_lev_str() {
+    local lv="${1:-0}"
+    if [ "$DEBUG_COLOR" = "y" ]; then
+        if [ $lv -lt -1 ]; then
+            echo -e "\e[31mERROR[$lv]\e[00m"
+        elif [ $lv -eq -1 ]; then
+            echo -e "\e[33mWARNING\e[00m"
+        elif [ $lv -eq 0 ]; then
+            echo -e "\e[32mINFO\e[00m"
+        else
+            echo -e "DEBUG[$lv]"
+        fi
+    else
+        if [ $lv -lt -1 ]; then
+            echo -e "ERROR[$lv]"
+        elif [ $lv -eq -1 ]; then
+            echo -e "WARNING"
+        elif [ $lv -eq 0 ]; then
+            echo -e "INFO"
+        else
+            echo -e "DEBUG[$lv]"
+        fi
+    fi
+}
+
+# usage: # db level message ...
+db() {
+    local -i lv="$1"
+    [ "$lv" -gt "$DEBUG_LEVEL" ] && return 0
+    shift
+    echo "$(date '+%Y-%m-%d %T') $(db_lev_str $lv): $*" 1>&2
+}
+
+# usage: # command | dbcat level first line message
+dbcat() {
+    local -i lv="$1"
+    [ $lv -gt $DEBUG_LEVEL ] && return 0
+    shift
+    echo -e "$(date '+%Y-%m-%d %T') $(db_lev_str $lv): $*" 1>&2
+    cat 1>&2
+}
+
+usage() {
+    local -i lv="${1:-0}"
+    pod2usage "$0"
+    exit "$lv"
+}
+
+show_version() {
+    echo "$PROG_NAME $PROG_VERSION"
+    echo "$PROG_COPYRIGHT"
+    echo "Author: $PROG_AUTHOR"
+    exit 0
+}
+
+mk_temp() {
+    local varname="$1"
+    shift
+    local t=$(/bin/mktemp "$@")
+    local r=$?
+    chmod 600 "$t"
+    TMP_FILES+=("$t")
+    db 4 "added cleanup file: $t (now have ${#TMP_FILES[@]})"
+    eval $varname=\"$t\"
+    return $r
+}
+
+cleanup() {
+    local f
+    for f in "${TMP_FILES[@]}"; do
+        db 3 "clean_exit: removing tmp file: $f"
+        rm -f "$f"
+    done
+}
+
+erex() {
+    db -2 "$*"
+    exit 1
+}
+
+trap cleanup EXIT

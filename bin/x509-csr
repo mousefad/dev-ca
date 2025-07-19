@@ -1,0 +1,355 @@
+#!/usr/bin/env bash
+
+PROG_NAME='Generate Certificate Signing Request'
+PROG_AUTHOR='Mouse'
+PROG_COPYRIGHT='Copyright (C) 2025'
+PROG_VERSION='1.0'
+
+declare -a SANS=()
+CURVE=""
+RSA_BITS=""
+KEY_PATH=""
+CSR_PATH=""
+INTERACTIVE=n
+
+main() {
+    local getopt_tmp
+    getopt_tmp=$(getopt -o c:D:hik:p:r,V --long curve:,debug:,help,interactive,key:,pass:,rsa:,version -- "$@") || erex 1 "Invalid usage. Try '${0##*/} -h | less -r' for help"
+    eval set -- "$getopt_tmp"
+    while true; do
+        case "$1" in
+        --curve | -c)
+            CURVE="$2"
+            shift 2
+            ;;
+        --debug | -D)
+            DEBUG_LEVEL="$2"
+            shift 2
+            ;;
+        --help | -h)
+            usage 0
+            return 0
+            ;;
+        --interactive | -i)
+            INTERACTIVE=y
+            shift
+            ;;
+        --key | -k)
+            KEY_PATH="$2"
+            shift 2
+            ;;
+        --pass | -p)
+            export PASS="$2"
+            shift 2
+            ;;
+        --rsa | -r)
+            RSA_BITS="$2"
+            shift 2
+            ;;
+        --version | -V)
+            show_version
+            exit 0
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            erex 1 "ERROR: unknown option: $1"
+            ;;
+        esac
+    done
+
+    if [ "$#" -lt 2 ]; then
+        usage 1
+    fi
+
+    CSR_PATH="$1"
+    shift
+    if [ -z "$KEY_PATH" ]; then
+        KEY_PATH="${CSR_PATH%.csr}.key"
+        generate_key
+    fi
+
+    generate_csr "$@"
+}
+
+generate_key() {
+    if [ -e "$KEY_PATH" ]; then
+        erex "key file '$KEY_PATH' already exists; ABORTING"
+    fi
+    if [ -z "$PASS" ]; then
+        erex "pass phrase is mandatory; ABORTING"
+    fi
+
+    if [ -z "$CURVE" ] && [ -z "$RSA_BITS" ]; then
+        CURVE="$X509_DEFAULT_CURVE"
+    elif [ -n "$CURVE" ] && [ -n "$RSA_BITS" ]; then
+        erex "cannot specify both --curve and --rsa key types"
+    fi
+
+    if [ -n "$CURVE" ]; then
+        validate_curve
+    else
+        validate_rsa_bits
+    fi
+
+    mk_temp log
+    db 0 "$cert_id: generating PRIVATE KEY '$KEY_PATH' ..."
+    if [ -n "$CURVE" ]; then
+        cmd=(openssl genpkey)
+        cmd+=(-algorithm ec)
+        cmd+=(-pkeyopt "ec_paramgen_curve:$CURVE")
+        cmd+=(-pkeyopt "ec_param_enc:named_curve")
+        cmd+=(-out "$KEY_PATH")
+        cmd+=(-pass "env:PASS")
+        cmd+=(-aes256)
+    else
+        cmd=(openssl genrsa)
+        cmd+=(-aes256)
+        cmd+=(-passout "env:PASS")
+        cmd+=(-out "$KEY_PATH")
+        cmd+=("$RSA_BITS")
+    fi
+    db 2 "exec: $(printf "%q " "${cmd[@]}")"
+    if ! "${cmd[@]}" >"$log" 2>&1; then
+        dbcat -2 "while generating new key:" <"$log"
+        exit 1
+    fi
+}
+
+generate_csr() {
+    [ $# -ge 1 ] || erex "must specify at least the CN for the new cert"
+    [ -r "$KEY_PATH" ] || erex "key not found/readable: '$KEY_PATH'; ABORTING"
+    [ -e "$CSR_PATH" ] && erex "CSR already exists: '$CSR_PATH'; ABORTING"
+    local CN="$1"
+    shift
+    local -a SANS=("$@")
+    local NOW=$(date +%Y%m%d%H%M%S)
+    local SUBJ="$(make_subj_for_cn "$CN")"
+
+    mk_temp config
+
+    [ "$INTERACTIVE" = y ] && prompt_subj
+
+    cat >"$config" <<-EOD
+	[req]
+	distinguished_name = req_distinguished_name
+	req_extensions = v3_req
+	prompt = no
+	
+	[req_distinguished_name]
+	EOD
+
+    local -A subj
+    [ -n "$SUBJ_COUNTRY" ] && subj[C]="$SUBJ_COUNTRY"
+    [ -n "$SUBJ_STATE" ] && subj[ST]="$SUBJ_STATE"
+    [ -n "$SUBJ_LOCALITY" ] && subj[L]="$SUBJ_LOCALITY"
+    [ -n "$SUBJ_ORGANIZATION" ] && subj[O]="$SUBJ_ORGANIZATION"
+    [ -n "$SUBJ_ORGANIZATION_UNIT" ] && subj[OU]="$SUBJ_ORGANIZATION_UNIT"
+    [ -n "$SUBJ_EMAIL" ] && subj[emailAddress]="$SUBJ_EMAIL"
+    local id
+    local sval
+    local subj_str=""
+    for id in "${!subj[@]}"; do
+        sval="${subj["$id"]}"
+        echo "$id = $sval" >>"$config"
+        [ "$id" = "emailAddress" ] && id=E
+        subj_str="${subj_str}, $id=$sval"
+    done
+    echo "CN = $CN" >>"$config"
+    subj_str="${subj_str}, CN=$CN"
+    subj_str="${subj_str#, }"
+
+    cat >>"$config" <<-EOD
+
+	[v3_req]
+	keyUsage = nonRepudiation, digitalSignature, keyEncipherment
+	extendedKeyUsage = serverAuth, clientAuth
+	EOD
+
+    local alt_names_str=""
+    if [ ${#SANS[@]} -gt 0 ]; then
+        echo "subjectAltName = @alt_names" >>"$config"$(
+            echo >>"$config"
+        )
+        echo "[alt_names]" >>"$config"
+        local dns_count=0
+        local ip_count=0
+        local i
+        for ((i = 0; i < ${#SANS[@]}; i++)); do
+            case "${SANS[$i]}" in
+            [0-9]*)
+                let ip_count+=1
+                echo "IP.$ip_count = ${SANS[$i]}" >>"$config"
+                alt_names_str="$alt_names_str, IP:${SANS[$i]}"
+                ;;
+            *)
+                let dns_count+=1
+                echo "DNS.$dns_count = ${SANS[$i]}" >>"$config"
+                alt_names_str="$alt_names_str, DNS:${SANS[$i]}"
+                ;;
+            esac
+        done
+    fi
+    alt_names_str="${alt_names_str#, }"
+
+    dbcat 3 "config file for CSR:" <"$config"
+
+    db 0 "$cert_id: generating CSR '$CSR_PATH' ..."
+    cmd=(openssl req)
+    cmd+=(-config "$config")
+    cmd+=(-key "$KEY_PATH")
+    cmd+=(-passin "env:PASS")
+    cmd+=(-new)
+    cmd+=(-sha256)
+    #cmd+=(-subj "$subj")
+    cmd+=(-out "$CSR_PATH")
+    db 2 "exec: $(printf "%q" "${cmd[@]}")"
+    if ! "${cmd[@]}" >"$log" 2>&1; then
+        dbcat -2 "while generating CSR:" <"$log"
+        exit 1
+    fi
+
+    [ -n "$alt_names_str" ] && sed -i "1 s/^/Subject Alternative Names: $alt_names_str\n/" "$CSR_PATH"
+    sed -i "1 s/^/Subject: $subj_str\n/" "$CSR_PATH"
+}
+
+source x509-include
+main "$@"
+
+cat <<EOD >/dev/null
+
+=head1 NAME
+
+x509-csr - Generate a certficiate signing request for a server certificate
+
+=head1 SYNOPSIS
+
+x509-csr [options] path.csr cn [alt [alt] ...]
+
+=head1 DESCRIPTION
+
+Generate a certificate signing request in the file F<path.csr> with the
+specified common name (B<cn>), and optionally list of subject alternative
+name domains (B<alt>).
+
+Subject field names will be taken from the environment varibales described 
+in the ENVIRONMENT section, below.
+
+The program has to modes:
+
+=over 
+
+=item New Key Mode
+
+If the B<--key> option is not used, the program will generate a new
+key file with the same filename name as the F<.csr> file, but with the
+extension F<.key>. The type of the new key is controlled by the B<--curve>
+or B<--rsa> options.
+
+A pass-phrase for the new key can be provided either using the B<--pass>
+option or by setting the F<PASS> environment variable. If neither method
+is used, a warning is issued and the key generated without a pass-phrase.
+
+=item Existing Key Mode
+
+If the B<--key> option is used then the argument to the option is used
+as the key for the CSR.
+
+=back
+
+=head1 OPTIONS
+
+=over
+
+=item B<--curve>=I<c> or B<-c> I<c>
+
+Specify which elliptic curve to use. The default is taken from the 
+F<X509_DEFAULT_CURVE> environment variable.
+
+To see what curves are available, use the command: 
+
+ openssl ecparam -list_curves>
+
+=item B<--debug>=I<lev> or B<-D> I<lev>
+
+Set debugging level to I<lev>.
+
+=item B<--help> or B<-h>
+
+Print usage information, then exit.
+
+=item B<--key>=I<path> or B<-k> I<path>
+
+Specify the path of an existing key file to be used with the CSR.  This will
+activate Existing Key Mode.
+
+=item B<--pass> I<p> or B<-p> I<p>
+
+Specify pass-phrase for the generated private key when in New Key
+Mode. If this option is not used, the value will be taken from the F<PASS>
+environment variable.
+
+=item B<--interactive> or B<-i>
+
+Prompt user for value(s) of subject fields. Defaults will be taken from
+the environment variables described in the ENVIRONMENT section, below.
+
+=item B<--version> or B<-V>
+
+Print program name and version, then exit.
+
+=back
+
+=head1 ENVIRONMENT
+
+=over
+
+=item SUBJ_COUNTRY
+
+Optional value for country field in the CSR.
+
+=item SUBJ_EMAIL
+
+Optional value for email field in the CSR.
+
+=item SUBJ_LOCALITY
+
+Optional value for location field in the CSR.
+
+=item SUBJ_ORGANIZATION
+
+Mandatory value for organization field in the CSR.
+
+=item SUBJ_ORGANIZATION_UNIT
+
+Optional value for organization unit field in the CSR.
+
+=item SUBJ_STATE
+
+Optional value for state/province field in the CSR.
+
+=item X509_DEFAULT_CURVE
+
+Optional ID of elliptic curve to use when B<--curve> and B<--rsa>
+options are not used.
+
+=back
+
+=head1 COPYRIGHT
+
+Copyright (C) 2025 Mouse. Released under the terms of the GNU GPL
+v3 license.
+
+=head1 AUTHORS
+
+Mouse <mousefad@googlemail.com>
+
+=head1 SEE ALSO
+
+x509-ca(1), x509-sign(1)
+
+=cut
+
+EOD
