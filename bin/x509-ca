@@ -54,9 +54,27 @@ main() {
         export CA_HOME="$(realpath "$1")" || exit 1
     fi
 
-    if [ -z "$CA_ROOT_PASSWORD" ]; then
-        erex "CA_ROOT_PASSWORD env var must be set"
+    if [ "$INTERACTIVE" = y ]; then
+        prompt_subj
+        [ -z "$CA_ROOT_PASS" ] && prompt_pass CA_ROOT_PASS "Passphrase for ROOT CA key"
+        [ -z "$CA_INT_PASS" ] && prompt_pass CA_INT_PASS "Passphrase for INTERMEDIATE CA key"
     fi
+
+    local ok=y
+    if [ -z "$CA_ROOT_PASS" ]; then
+        db -2 "CA_ROOT_PASS env var must be set (or use --interactive option)"
+        ok=n
+    fi
+    if [ -z "$CA_INT_PASS" ]; then
+
+        db -2 "CA_INT_PASS env var must be set (or use --interactive option)"
+        ok=n
+    fi
+    if [ -z "$SUBJ_ORGANIZATION" ]; then
+        db -2 "SUBJ_ORGANIZATION env var must be set (or use --interactive option)"
+        ok=n
+    fi
+    [ "$ok" = n ] && exit 1
 
     if [ -z "$CURVE" ] && [ -z "$RSA_BITS" ]; then
         CURVE="$X509_DEFAULT_CURVE"
@@ -96,8 +114,6 @@ create_ca() {
     CA_SECTION=CA_root
     template_ca_config_file >openssl.cnf || return 1
 
-    [ "$INTERACTIVE" = y ] && prompt_subj
-
     # Create root key
     db 0 "generating root CA key..."
     if [ -n "$CURVE" ]; then
@@ -106,12 +122,12 @@ create_ca() {
         cmd+=(-pkeyopt "ec_paramgen_curve:$CURVE")
         cmd+=(-pkeyopt "ec_param_enc:named_curve")
         cmd+=(-out "private/ca.key.pem")
-        cmd+=(-pass "env:CA_ROOT_PASSWORD")
+        cmd+=(-pass "env:CA_ROOT_PASS")
         cmd+=(-aes256)
     else
         cmd=(openssl genrsa)
         cmd+=(-aes256)
-        cmd+=(-passout "env:CA_ROOT_PASSWORD")
+        cmd+=(-passout "env:CA_ROOT_PASS")
         cmd+=(-out private/ca.key.pem)
         cmd+=("$RSA_BITS")
     fi
@@ -131,7 +147,7 @@ create_ca() {
     cmd+=(-days 7300)
     cmd+=(-sha256)
     cmd+=(-extensions v3_ca)
-    cmd+=(-passin "env:CA_ROOT_PASSWORD")
+    cmd+=(-passin "env:CA_ROOT_PASS")
     cmd+=(-out certs/ca.cert.pem)
     cmd+=(-subj "$(make_subj_for_cn "ROOT CA")")
     db 2 "exec: $(printf "%q " "${cmd[@]}")"
@@ -163,12 +179,12 @@ create_ca() {
         cmd+=(-pkeyopt "ec_paramgen_curve:$CURVE")
         cmd+=(-pkeyopt "ec_param_enc:named_curve")
         cmd+=(-out "$CA_INT_HOME/private/intermediate.key.pem")
-        cmd+=(-pass "env:CA_ROOT_PASSWORD")
+        cmd+=(-pass "env:CA_INT_PASS")
         cmd+=(-aes256)
     else
         cmd=(openssl genrsa)
         cmd+=(-aes256)
-        cmd+=(-passout "env:CA_ROOT_PASSWORD")
+        cmd+=(-passout "env:CA_INT_PASS")
         cmd+=(-out "$CA_INT_HOME/private/intermediate.key.pem")
         cmd+=("$RSA_BITS")
     fi
@@ -186,7 +202,7 @@ create_ca() {
     cmd+=(-new)
     cmd+=(-sha256)
     cmd+=(-key "$CA_INT_HOME/private/intermediate.key.pem")
-    cmd+=(-passin "env:CA_ROOT_PASSWORD")
+    cmd+=(-passin "env:CA_INT_PASS")
     cmd+=(-out "$CA_INT_HOME/csr/intermediate.csr.pem")
     cmd+=(-subj "$(make_subj_for_cn "INT CA")")
     db 2 "exec: $(printf "%q " "${cmd[@]}")"
@@ -204,7 +220,7 @@ create_ca() {
     cmd+=(-days 3650)
     cmd+=(-notext)
     cmd+=(-md sha256)
-    cmd+=(-passin "env:CA_ROOT_PASSWORD")
+    cmd+=(-passin "env:CA_ROOT_PASS")
     cmd+=(-in "$CA_INT_HOME/csr/intermediate.csr.pem")
     cmd+=(-out "$CA_INT_HOME/certs/intermediate.cert.pem")
     db 2 "exec: $(printf "%q " "${cmd[@]}")"
@@ -404,7 +420,7 @@ These files may then be used with the x509-csr(1) and x509-sign-csr(1)
 programs to issue server and client certificates.
 
 The password for the root and intermediate authority private keys will be
-taben from the B<CA_ROOT_PASSWORD> environment variable, which must be set.
+taben from the B<CA_ROOT_PASS> environment variable, which must be set.
 
 =head1 OPTIONS
 
@@ -470,10 +486,13 @@ Optional - if set will be used as the default destination directory.
 If not set, the user must provide the destination directory as a parameter
 when invoking F<x509-ca>.
 
-=item CA_ROOT_PASSWORD
+=item CA_ROOT_PASS
 
-Mandatory value for the password that protects the root and intermediate
-CA private keys.
+Mandatory value for the password that protects the root CA key.
+
+=item CA_INT_PASS
+
+Mandatory value for the password that protects the intermediate CA key.
 
 =item CA_DOMAIN
 

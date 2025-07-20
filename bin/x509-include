@@ -71,6 +71,24 @@ prompt_subj() {
 	EOD
 }
 
+prompt_pass() {
+    local var="$1"
+    local tmp
+    local tmp2
+    while true; do
+        read -s -p "$2> " tmp
+        echo
+        read -s -p "again to verify> " tmp2
+        echo
+        if [ "$tmp" = "$tmp2" ]; then
+            break
+        else
+            db -2 "mismatch, please try again"
+        fi
+    done
+    export "$var"="$tmp"
+}
+
 make_subj_for_cn() {
     local subj=""
     [ -n "$SUBJ_COUNTRY" ] && subj="$subj/C=$SUBJ_COUNTRY"
