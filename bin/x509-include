@@ -72,12 +72,18 @@ prompt_subj() {
 }
 
 prompt_pass() {
+    local verify=y
+    if [ "$1" = "-n" ]; then
+        verify=n
+        shift
+    fi
     local var="$1"
     local tmp
     local tmp2
     while true; do
         read -s -p "$2> " tmp
         echo
+        [ "$verify" = n ] && break
         read -s -p "again to verify> " tmp2
         echo
         if [ "$tmp" = "$tmp2" ]; then

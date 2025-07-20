@@ -14,7 +14,7 @@ INTERACTIVE=n
 
 main() {
     local getopt_tmp
-    getopt_tmp=$(getopt -o c:D:hik:p:r,V --long curve:,debug:,help,interactive,key:,pass:,rsa:,version -- "$@") || erex 1 "Invalid usage. Try '${0##*/} -h | less -r' for help"
+    getopt_tmp=$(getopt -o c:D:hik:r,V --long curve:,debug:,help,interactive,key:,rsa:,version -- "$@") || erex 1 "Invalid usage. Try '${0##*/} -h | less -r' for help"
     eval set -- "$getopt_tmp"
     while true; do
         case "$1" in
@@ -36,10 +36,6 @@ main() {
             ;;
         --key | -k)
             KEY_PATH="$2"
-            shift 2
-            ;;
-        --pass | -p)
-            export PASS="$2"
             shift 2
             ;;
         --rsa | -r)
@@ -78,10 +74,6 @@ generate_key() {
     if [ -e "$KEY_PATH" ]; then
         erex "key file '$KEY_PATH' already exists; ABORTING"
     fi
-    if [ -z "$PASS" ]; then
-        erex "pass phrase is mandatory; ABORTING"
-    fi
-
     if [ -z "$CURVE" ] && [ -z "$RSA_BITS" ]; then
         CURVE="$X509_DEFAULT_CURVE"
     elif [ -n "$CURVE" ] && [ -n "$RSA_BITS" ]; then
@@ -92,6 +84,10 @@ generate_key() {
         validate_curve
     else
         validate_rsa_bits
+    fi
+
+    if [ -z "$PASS" ]; then
+        prompt_pass PASS "Pass-phrase for $KEY_PATH"
     fi
 
     mk_temp log
@@ -196,6 +192,11 @@ generate_csr() {
 
     dbcat 3 "config file for CSR:" <"$config"
 
+    if [ -z "$PASS" ]; then
+        prompt_pass -n PASS "Pass-phrase for $KEY_PATH"
+    fi
+
+    mk_temp log
     db 0 "$cert_id: generating CSR '$CSR_PATH' ..."
     cmd=(openssl req)
     cmd+=(-config "$config")
@@ -203,9 +204,8 @@ generate_csr() {
     cmd+=(-passin "env:PASS")
     cmd+=(-new)
     cmd+=(-sha256)
-    #cmd+=(-subj "$subj")
     cmd+=(-out "$CSR_PATH")
-    db 2 "exec: $(printf "%q" "${cmd[@]}")"
+    db 2 "exec: $(printf "%q " "${cmd[@]}")"
     if ! "${cmd[@]}" >"$log" 2>&1; then
         dbcat -2 "while generating CSR:" <"$log"
         exit 1
@@ -245,12 +245,12 @@ The program has to modes:
 
 If the B<--key> option is not used, the program will generate a new
 key file with the same filename name as the F<.csr> file, but with the
-extension F<.key>. The type of the new key is controlled by the B<--curve>
-or B<--rsa> options.
+F<.csr> extension remove and F<.key> appeneded. The type of the new key 
+is controlled by the B<--curve> or B<--rsa> options.
 
-A pass-phrase for the new key can be provided either using the B<--pass>
-option or by setting the F<PASS> environment variable. If neither method
-is used, a warning is issued and the key generated without a pass-phrase.
+A pass-phrase for the new key can be provided either using the F<PASS> 
+environment variable. If F<PASS> is not set, the user will be prompted
+to enter a password when the program starts.
 
 =item Existing Key Mode
 
