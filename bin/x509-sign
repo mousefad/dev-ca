@@ -20,92 +20,93 @@ INTERACTIVE=n
 DAYS=$((365 + 14))
 
 main() {
-  local getopt_tmp
-  getopt_tmp=$(getopt -o c:D:d:hV --long ca-dir:,debug:,help,valid-days:,version -- "$@") || erex 1 "Invalid usage. Try '${0##*/} -h | less -r' for help"
-  eval set -- "$getopt_tmp"
-  while true; do
-    case "$1" in
-    --ca-dir | -c)
-      export CA_HOME="$2"
-      shift 2
-      ;;
-    --debug | -D)
-      DEBUG_LEVEL="$2"
-      shift 2
-      ;;
-    --help | -h)
-      usage 0
-      return 0
-      ;;
-    --valid-days | -d)
-      DAYS="$2"
-      shift 2
-      ;;
-    --version | -V)
-      show_version
-      exit 0
-      ;;
-    --)
-      shift
-      break
-      ;;
-    *)
-      erex 1 "ERROR: unknown option: $1"
-      ;;
-    esac
-  done
+    local getopt_tmp
+    getopt_tmp=$(getopt -o c:D:d:hV --long ca-dir:,debug:,help,valid-days:,version -- "$@") || erex 1 "Invalid usage. Try '${0##*/} -h | less -r' for help"
+    eval set -- "$getopt_tmp"
+    while true; do
+        case "$1" in
+        --ca-dir | -c)
+            export CA_HOME="$2"
+            shift 2
+            ;;
+        --debug | -D)
+            DEBUG_LEVEL="$2"
+            shift 2
+            ;;
+        --help | -h)
+            usage 0
+            return 0
+            ;;
+        --valid-days | -d)
+            DAYS="$2"
+            shift 2
+            ;;
+        --version | -V)
+            show_version
+            exit 0
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            erex 1 "ERROR: unknown option: $1"
+            ;;
+        esac
+    done
 
-  if [ "$#" -lt 1 ]; then
-    usage 1
-  fi
+    if [ "$#" -lt 1 ]; then
+        usage 1
+    fi
 
-  CSR_PATH="$1"
-  if [ -n "$2" ]; then
-    PEM_PATH="$2"
-  else
-    PEM_PATH="${1%.csr}.pem"
-  fi
-  if [ -e "$PEM_PATH" ]; then
-    erex "Certificate file '$PEM_PATH' already exists; ABORTING"
-  fi
+    CSR_PATH="$1"
+    if [ -n "$2" ]; then
+        PEM_PATH="$2"
+    else
+        PEM_PATH="${1%.csr}.pem"
+    fi
+    if [ -e "$PEM_PATH" ]; then
+        erex "Certificate file '$PEM_PATH' already exists; ABORTING"
+    fi
 
-  [ -n "CA_INT_PASS" ] || prompt_pass -v CA_INT_PASS "Intermediate CA pass-phrase"
+    [ -n "$CA_INT_PASS" ] || prompt_pass -n CA_INT_PASS "Intermediate CA pass-phrase"
 
-  sign_csr
+    sign_csr
 }
 
 sign_csr() {
-  db 0 "Generating certificate '$PEM_PATH' from CSR '$CSR_PATH' ..."
-  mk_temp log
-  cmd=(openssl ca)
-  cmd+=(-batch)
-  cmd+=(-config "$CA_HOME/int/openssl.cnf")
-  cmd+=(-extensions server_cert)
-  cmd+=(-days "$DAYS")
-  cmd+=(-notext)
-  cmd+=(-md sha256)
-  cmd+=(-passin "env:CA_INT_PASS")
-  cmd+=(-in "$CSR_PATH")
-  cmd+=(-out "$PEM_PATH")
-  db 1 "exec: $(printf "%q " "${cmd[@]}")"
-  if ! "${cmd[@]}" >"$log" 2>&1; then
-    dbcat -2 "while signing certificate:" <"$log"
-    exit 1
-  fi
+    db 0 "Generating certificate '$PEM_PATH' from CSR '$CSR_PATH' ..."
+    mk_temp log
+    cmd=(openssl ca)
+    cmd+=(-batch)
+    cmd+=(-config "$CA_HOME/int/openssl.cnf")
+    cmd+=(-extensions server_cert)
+    cmd+=(-days "$DAYS")
+    cmd+=(-notext)
+    cmd+=(-md sha256)
+    cmd+=(-passin "env:CA_INT_PASS")
+    cmd+=(-in "$CSR_PATH")
+    cmd+=(-out "$PEM_PATH")
+    db 1 "exec: $(printf "%q " "${cmd[@]}")"
+    if ! "${cmd[@]}" >"$log" 2>&1; then
+        dbcat -2 "while signing certificate:" <"$log"
+        exit 1
+    fi
 
-  db 0 "Verifying Chain of Trust..."
-  cmd=(openssl verify)
-  cmd+=(-CAfile "$CA_HOME/int/certs/ca-chain.cert.pem")
-  cmd+=("$PEM_PATH")
-  db 1 "exec: $(printf "%q " "${cmd[@]}")"
-  if ! "${cmd[@]}" >"$log" 2>&1; then
-    dbcat -2 "while verifying chain of trust:" <"$log"
-    exit 1
-  fi
+    db 0 "Verifying Chain of Trust..."
+    cmd=(openssl verify)
+    cmd+=(-CAfile "$CA_HOME/int/certs/ca-chain.cert.pem")
+    cmd+=("$PEM_PATH")
+    db 1 "exec: $(printf "%q " "${cmd[@]}")"
+    if ! "${cmd[@]}" >"$log" 2>&1; then
+        dbcat -2 "while verifying chain of trust:" <"$log"
+        exit 1
+    fi
 }
 
 source x509-include
 main "$@"
+exit 0
 
 cat <<EOD >/dev/null
 
@@ -159,34 +160,14 @@ Print program name and version, then exit.
 
 =over
 
-=item SUBJ_COUNTRY
+=item CA_HOME
 
-Optional value for country field in the CSR.
+This should be set to the location of the CA files (must have sub-dir $(int)).
 
-=item SUBJ_EMAIL
+=item CA_INT_PASS
 
-Optional value for email field in the CSR.
-
-=item SUBJ_LOCALITY
-
-Optional value for location field in the CSR.
-
-=item SUBJ_ORGANIZATION
-
-Mandatory value for organization field in the CSR.
-
-=item SUBJ_ORGANIZATION_UNIT
-
-Optional value for organization unit field in the CSR.
-
-=item SUBJ_STATE
-
-Optional value for state/province field in the CSR.
-
-=item X509_DEFAULT_CURVE
-
-Optional ID of elliptic curve to use when B<--curve> and B<--rsa>
-options are not used.
+If set, the value of this environment variable will be used as the
+intermediate (issuing) CA private key pass-phrase.
 
 =back
 
