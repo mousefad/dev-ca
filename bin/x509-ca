@@ -54,6 +54,18 @@ main() {
         export CA_HOME="$(realpath "$1")" || exit 1
     fi
 
+    if [ -z "$CURVE" ] && [ -z "$RSA_BITS" ]; then
+        CURVE="$X509_DEFAULT_CURVE"
+    elif [ -n "$CURVE" ] && [ -n "$RSA_BITS" ]; then
+        erex "cannot specify both --curve and --rsa key types"
+    fi
+
+    if [ -n "$CURVE" ]; then
+        validate_curve
+    else
+        validate_rsa_bits
+    fi
+
     if [ "$INTERACTIVE" = y ]; then
         prompt_subj
         [ -z "$CA_ROOT_PASS" ] && prompt_pass CA_ROOT_PASS "Passphrase for ROOT CA key"
@@ -75,18 +87,6 @@ main() {
         ok=n
     fi
     [ "$ok" = n ] && exit 1
-
-    if [ -z "$CURVE" ] && [ -z "$RSA_BITS" ]; then
-        CURVE="$X509_DEFAULT_CURVE"
-    elif [ -n "$CURVE" ] && [ -n "$RSA_BITS" ]; then
-        erex "cannot specify both --curve and --rsa key types"
-    fi
-
-    if [ -n "$CURVE" ]; then
-        validate_curve
-    else
-        validate_rsa_bits
-    fi
 
     create_ca "$@"
 }
