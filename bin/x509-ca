@@ -277,6 +277,7 @@ name_opt                = ca_default
 cert_opt                = ca_default
 preserve                = no
 default_md              = sha256
+copy_extensions         = copy
 
 [ policy_root ]
 # See the POLICY FORMAT section of \`man ca\`.
@@ -340,7 +341,7 @@ authorityKeyIdentifier = keyid
 [ crldp_int ]
 fullname=URI:http://${CA_DOMAIN}/cert/revoke.crl
 
-[san_dir]
+[ san_dir ]
 CN=CA
 
 [ usr_cert ]
@@ -353,7 +354,6 @@ extendedKeyUsage = clientAuth, emailProtection
 
 [ server_cert ]
 # Extensions for server certificates (\`man x509v3_config\`).
-subjectAltName = @san_list
 basicConstraints = CA:FALSE
 crlDistributionPoints = crldp_int
 keyUsage = digitalSignature, keyEncipherment
@@ -362,9 +362,6 @@ authorityKeyIdentifier = keyid
 certificatePolicies = @cert_policy
 
 extendedKeyUsage = serverAuth, clientAuth
-
-[ san_list ]
-DNS = example.${CA_DOMAIN}
 
 [ cert_policy ]
 policyIdentifier = 1.2.3.4
