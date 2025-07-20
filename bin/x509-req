@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+#
+# Copyright (C) 2025 Mouse <mousefad@googlemail.com>
+# This software is released under the terms of the GNU GPL v3 license.
+# See the LICENSE file for details.
+#
+# Note: there are POD document tags at the end of this file.
 
 PROG_NAME='Generate Certificate Signing Request'
 PROG_AUTHOR='Mouse'

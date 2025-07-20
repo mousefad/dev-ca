@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 #
+# Copyright (C) 2025 Mouse <mousefad@googlemail.com>
+# This software is released under the terms of the GNU GPL v3 license.
+# See the LICENSE file for details.
+#
 # Common shell function for x509- family of programs
 
 declare -i DEBUG_LEVEL=0

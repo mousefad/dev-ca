@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 #
-# For docs, see POD tags at end of file
+# Copyright (C) 2025 Mouse <mousefad@googlemail.com>
+# This software is released under the terms of the GNU GPL v3 license.
+# See the LICENSE file for details.
+#
+# Note: there are POD document tags at the end of this file.
 
 PROG_NAME='Create a Certificate Authority'
 PROG_AUTHOR='Mouse <mousefad@googlemail.com>'
@@ -12,231 +16,231 @@ RSA_BITS=""
 INTERACTIVE=n
 
 main() {
-    local getopt_tmp
-    getopt_tmp=$(getopt -o c:D:hir:V --long curve:,debug:,help,interactive,rsa:,version -- "$@") || erex "Invalid usage. Try '${0##*/} -h | less -r' for help"
-    eval set -- "$getopt_tmp"
-    while true; do
-        case "$1" in
-        --curve | -c)
-            CURVE="$2"
-            shift 2
-            ;;
-        --debug | -D)
-            DEBUG_LEVEL="$2"
-            shift 2
-            ;;
-        --help | -h)
-            usage 0
-            return 0
-            ;;
-        --interactive | -i)
-            INTERACTIVE=y
-            shift
-            ;;
-        --rsa | -r)
-            RSA_BITS="$2"
-            shift 2
-            ;;
-        --version | -V)
-            show_version
-            exit 0
-            ;;
-        --)
-            shift
-            break
-            ;;
-        *) erex "unknown option: $1" ;; esac
-    done
+  local getopt_tmp
+  getopt_tmp=$(getopt -o c:D:hir:V --long curve:,debug:,help,interactive,rsa:,version -- "$@") || erex "Invalid usage. Try '${0##*/} -h | less -r' for help"
+  eval set -- "$getopt_tmp"
+  while true; do
+    case "$1" in
+    --curve | -c)
+      CURVE="$2"
+      shift 2
+      ;;
+    --debug | -D)
+      DEBUG_LEVEL="$2"
+      shift 2
+      ;;
+    --help | -h)
+      usage 0
+      return 0
+      ;;
+    --interactive | -i)
+      INTERACTIVE=y
+      shift
+      ;;
+    --rsa | -r)
+      RSA_BITS="$2"
+      shift 2
+      ;;
+    --version | -V)
+      show_version
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    *) erex "unknown option: $1" ;; esac
+  done
 
-    if [ $# -gt 1 ]; then
-        usage 1
-    elif [ $# -eq 1 ]; then
-        export CA_HOME="$(realpath "$1")" || exit 1
-    fi
+  if [ $# -gt 1 ]; then
+    usage 1
+  elif [ $# -eq 1 ]; then
+    export CA_HOME="$(realpath "$1")" || exit 1
+  fi
 
-    if [ -z "$CURVE" ] && [ -z "$RSA_BITS" ]; then
-        CURVE="$X509_DEFAULT_CURVE"
-    elif [ -n "$CURVE" ] && [ -n "$RSA_BITS" ]; then
-        erex "cannot specify both --curve and --rsa key types"
-    fi
+  if [ -z "$CURVE" ] && [ -z "$RSA_BITS" ]; then
+    CURVE="$X509_DEFAULT_CURVE"
+  elif [ -n "$CURVE" ] && [ -n "$RSA_BITS" ]; then
+    erex "cannot specify both --curve and --rsa key types"
+  fi
 
-    if [ -n "$CURVE" ]; then
-        validate_curve
-    else
-        validate_rsa_bits
-    fi
+  if [ -n "$CURVE" ]; then
+    validate_curve
+  else
+    validate_rsa_bits
+  fi
 
-    if [ "$INTERACTIVE" = y ]; then
-        prompt_subj
-        [ -z "$CA_ROOT_PASS" ] && prompt_pass CA_ROOT_PASS "Passphrase for ROOT CA key"
-        [ -z "$CA_INT_PASS" ] && prompt_pass CA_INT_PASS "Passphrase for INTERMEDIATE CA key"
-    fi
+  if [ "$INTERACTIVE" = y ]; then
+    prompt_subj
+    [ -z "$CA_ROOT_PASS" ] && prompt_pass CA_ROOT_PASS "Passphrase for ROOT CA key"
+    [ -z "$CA_INT_PASS" ] && prompt_pass CA_INT_PASS "Passphrase for INTERMEDIATE CA key"
+  fi
 
-    local ok=y
-    if [ -z "$CA_ROOT_PASS" ]; then
-        db -2 "CA_ROOT_PASS env var must be set (or use --interactive option)"
-        ok=n
-    fi
-    if [ -z "$CA_INT_PASS" ]; then
+  local ok=y
+  if [ -z "$CA_ROOT_PASS" ]; then
+    db -2 "CA_ROOT_PASS env var must be set (or use --interactive option)"
+    ok=n
+  fi
+  if [ -z "$CA_INT_PASS" ]; then
 
-        db -2 "CA_INT_PASS env var must be set (or use --interactive option)"
-        ok=n
-    fi
-    if [ -z "$SUBJ_ORGANIZATION" ]; then
-        db -2 "SUBJ_ORGANIZATION env var must be set (or use --interactive option)"
-        ok=n
-    fi
-    [ "$ok" = n ] && exit 1
+    db -2 "CA_INT_PASS env var must be set (or use --interactive option)"
+    ok=n
+  fi
+  if [ -z "$SUBJ_ORGANIZATION" ]; then
+    db -2 "SUBJ_ORGANIZATION env var must be set (or use --interactive option)"
+    ok=n
+  fi
+  [ "$ok" = n ] && exit 1
 
-    create_ca "$@"
+  create_ca "$@"
 }
 
 create_ca() {
-    CA_ROOT_HOME="$CA_HOME/root"
-    CA_INT_HOME="$CA_HOME/int"
+  CA_ROOT_HOME="$CA_HOME/root"
+  CA_INT_HOME="$CA_HOME/int"
 
-    if [ -e "$CA_HOME" ]; then
-        echo "$CA_HOME already exists, ABORTING" 1>&2
-        return 1
-    else
-        db 0 "creating $CA_HOME"
-    fi
+  if [ -e "$CA_HOME" ]; then
+    echo "$CA_HOME already exists, ABORTING" 1>&2
+    return 1
+  else
+    db 0 "creating $CA_HOME"
+  fi
 
-    mk_temp log
+  mk_temp log
 
-    # Create root CA dir
-    mkdir -p "$CA_ROOT_HOME" || return 1
-    cd "$CA_ROOT_HOME" || return 1
-    mkdir -p certs crl newcerts private || return 1
-    chmod 700 private || return 1
-    touch index.txt || return 1
-    echo 1000 >serial || return 1
-    CA_SECTION=CA_root
-    template_ca_config_file >openssl.cnf || return 1
+  # Create root CA dir
+  mkdir -p "$CA_ROOT_HOME" || return 1
+  cd "$CA_ROOT_HOME" || return 1
+  mkdir -p certs crl newcerts private || return 1
+  chmod 700 private || return 1
+  touch index.txt || return 1
+  echo 1000 >serial || return 1
+  CA_SECTION=CA_root
+  template_ca_config_file >openssl.cnf || return 1
 
-    # Create root key
-    db 0 "generating root CA key..."
-    if [ -n "$CURVE" ]; then
-        cmd=(openssl genpkey)
-        cmd+=(-algorithm ec)
-        cmd+=(-pkeyopt "ec_paramgen_curve:$CURVE")
-        cmd+=(-pkeyopt "ec_param_enc:named_curve")
-        cmd+=(-out "private/ca.key.pem")
-        cmd+=(-pass "env:CA_ROOT_PASS")
-        cmd+=(-aes256)
-    else
-        cmd=(openssl genrsa)
-        cmd+=(-aes256)
-        cmd+=(-passout "env:CA_ROOT_PASS")
-        cmd+=(-out private/ca.key.pem)
-        cmd+=("$RSA_BITS")
-    fi
-    db 2 "exec: $(printf "%q " "${cmd[@]}")"
-    if ! "${cmd[@]}" >"$log" 2>&1; then
-        dbcat -2 "while generating root key:" <"$log"
-        exit 1
-    fi
-    chmod 400 private/ca.key.pem || exit 1
+  # Create root key
+  db 0 "generating root CA key..."
+  if [ -n "$CURVE" ]; then
+    cmd=(openssl genpkey)
+    cmd+=(-algorithm ec)
+    cmd+=(-pkeyopt "ec_paramgen_curve:$CURVE")
+    cmd+=(-pkeyopt "ec_param_enc:named_curve")
+    cmd+=(-out "private/ca.key.pem")
+    cmd+=(-pass "env:CA_ROOT_PASS")
+    cmd+=(-aes256)
+  else
+    cmd=(openssl genrsa)
+    cmd+=(-aes256)
+    cmd+=(-passout "env:CA_ROOT_PASS")
+    cmd+=(-out private/ca.key.pem)
+    cmd+=("$RSA_BITS")
+  fi
+  db 2 "exec: $(printf "%q " "${cmd[@]}")"
+  if ! "${cmd[@]}" >"$log" 2>&1; then
+    dbcat -2 "while generating root key:" <"$log"
+    exit 1
+  fi
+  chmod 400 private/ca.key.pem || exit 1
 
-    db 0 "generating root CA cert..."
-    cmd=(openssl req)
-    cmd+=(-config openssl.cnf)
-    cmd+=(-key private/ca.key.pem)
-    cmd+=(-new)
-    cmd+=(-x509)
-    cmd+=(-days 7300)
-    cmd+=(-sha256)
-    cmd+=(-extensions v3_ca)
-    cmd+=(-passin "env:CA_ROOT_PASS")
-    cmd+=(-out certs/ca.cert.pem)
-    cmd+=(-subj "$(make_subj_for_cn "ROOT CA")")
-    db 2 "exec: $(printf "%q " "${cmd[@]}")"
-    if ! "${cmd[@]}" >"$log" 2>&1; then
-        dbcat -2 "while creating root cert:" <"$log"
-        exit 1
-    fi
-    chmod 444 certs/ca.cert.pem || exit 1
+  db 0 "generating root CA cert..."
+  cmd=(openssl req)
+  cmd+=(-config openssl.cnf)
+  cmd+=(-key private/ca.key.pem)
+  cmd+=(-new)
+  cmd+=(-x509)
+  cmd+=(-days 7300)
+  cmd+=(-sha256)
+  cmd+=(-extensions v3_ca)
+  cmd+=(-passin "env:CA_ROOT_PASS")
+  cmd+=(-out certs/ca.cert.pem)
+  cmd+=(-subj "$(make_subj_for_cn "ROOT CA")")
+  db 2 "exec: $(printf "%q " "${cmd[@]}")"
+  if ! "${cmd[@]}" >"$log" 2>&1; then
+    dbcat -2 "while creating root cert:" <"$log"
+    exit 1
+  fi
+  chmod 444 certs/ca.cert.pem || exit 1
 
-    # Create intermediate CA dir
-    mkdir -p "$CA_INT_HOME" || exit 1
-    cd "$CA_INT_HOME" || exit 1
-    mkdir -p certs crl csr newcerts private || exit 1
-    chmod 700 private || exit 1
-    touch index.txt || exit 1
-    echo "unique_subject = no" >index.txt.attr || exit 1
-    echo 1000 >serial || exit 1
-    echo 1000 >"$CA_INT_HOME/crlnumber" || exit 1
+  # Create intermediate CA dir
+  mkdir -p "$CA_INT_HOME" || exit 1
+  cd "$CA_INT_HOME" || exit 1
+  mkdir -p certs crl csr newcerts private || exit 1
+  chmod 700 private || exit 1
+  touch index.txt || exit 1
+  echo "unique_subject = no" >index.txt.attr || exit 1
+  echo 1000 >serial || exit 1
+  echo 1000 >"$CA_INT_HOME/crlnumber" || exit 1
 
-    CA_SECTION=CA_int
-    template_ca_config_file >openssl.cnf || exit 1
+  CA_SECTION=CA_int
+  template_ca_config_file >openssl.cnf || exit 1
 
-    # make intermediate key
-    cd "$CA_ROOT_HOME" || exit 1
-    db 0 "generating intermediate CA cert..."
-    if [ -n "$CURVE" ]; then
-        cmd=(openssl genpkey)
-        cmd+=(-algorithm ec)
-        cmd+=(-pkeyopt "ec_paramgen_curve:$CURVE")
-        cmd+=(-pkeyopt "ec_param_enc:named_curve")
-        cmd+=(-out "$CA_INT_HOME/private/intermediate.key.pem")
-        cmd+=(-pass "env:CA_INT_PASS")
-        cmd+=(-aes256)
-    else
-        cmd=(openssl genrsa)
-        cmd+=(-aes256)
-        cmd+=(-passout "env:CA_INT_PASS")
-        cmd+=(-out "$CA_INT_HOME/private/intermediate.key.pem")
-        cmd+=("$RSA_BITS")
-    fi
-    db 2 "exec: $(printf "%q " "${cmd[@]}")"
-    if ! "${cmd[@]}" >"$log" 2>&1; then
-        dbcat -2 "while creating intermediate key:" <"$log"
-        exit 1
-    fi
-    chmod 400 "$CA_INT_HOME/private/intermediate.key.pem" || exit 1
+  # make intermediate key
+  cd "$CA_ROOT_HOME" || exit 1
+  db 0 "generating intermediate CA cert..."
+  if [ -n "$CURVE" ]; then
+    cmd=(openssl genpkey)
+    cmd+=(-algorithm ec)
+    cmd+=(-pkeyopt "ec_paramgen_curve:$CURVE")
+    cmd+=(-pkeyopt "ec_param_enc:named_curve")
+    cmd+=(-out "$CA_INT_HOME/private/intermediate.key.pem")
+    cmd+=(-pass "env:CA_INT_PASS")
+    cmd+=(-aes256)
+  else
+    cmd=(openssl genrsa)
+    cmd+=(-aes256)
+    cmd+=(-passout "env:CA_INT_PASS")
+    cmd+=(-out "$CA_INT_HOME/private/intermediate.key.pem")
+    cmd+=("$RSA_BITS")
+  fi
+  db 2 "exec: $(printf "%q " "${cmd[@]}")"
+  if ! "${cmd[@]}" >"$log" 2>&1; then
+    dbcat -2 "while creating intermediate key:" <"$log"
+    exit 1
+  fi
+  chmod 400 "$CA_INT_HOME/private/intermediate.key.pem" || exit 1
 
-    # create CSR for intermediate certificate (to be signed by root CA)
-    db 0 "generating intermediate CA CSR..."
-    cmd=(openssl req)
-    cmd+=(-config "$CA_INT_HOME/openssl.cnf")
-    cmd+=(-new)
-    cmd+=(-sha256)
-    cmd+=(-key "$CA_INT_HOME/private/intermediate.key.pem")
-    cmd+=(-passin "env:CA_INT_PASS")
-    cmd+=(-out "$CA_INT_HOME/csr/intermediate.csr.pem")
-    cmd+=(-subj "$(make_subj_for_cn "INT CA")")
-    db 2 "exec: $(printf "%q " "${cmd[@]}")"
-    if ! "${cmd[@]}" >"$log" 2>&1; then
-        dbcat -2 "while creating intermediate CSR" <"$log"
-        exit 1
-    fi
+  # create CSR for intermediate certificate (to be signed by root CA)
+  db 0 "generating intermediate CA CSR..."
+  cmd=(openssl req)
+  cmd+=(-config "$CA_INT_HOME/openssl.cnf")
+  cmd+=(-new)
+  cmd+=(-sha256)
+  cmd+=(-key "$CA_INT_HOME/private/intermediate.key.pem")
+  cmd+=(-passin "env:CA_INT_PASS")
+  cmd+=(-out "$CA_INT_HOME/csr/intermediate.csr.pem")
+  cmd+=(-subj "$(make_subj_for_cn "INT CA")")
+  db 2 "exec: $(printf "%q " "${cmd[@]}")"
+  if ! "${cmd[@]}" >"$log" 2>&1; then
+    dbcat -2 "while creating intermediate CSR" <"$log"
+    exit 1
+  fi
 
-    # create intermediate certificate by processing the CSR with the root CA
-    db 0 "generating intermediate CA cert..."
-    cmd=(openssl ca)
-    cmd+=(-batch)
-    cmd+=(-config openssl.cnf)
-    cmd+=(-extensions v3_intermediate_ca)
-    cmd+=(-days 3650)
-    cmd+=(-notext)
-    cmd+=(-md sha256)
-    cmd+=(-passin "env:CA_ROOT_PASS")
-    cmd+=(-in "$CA_INT_HOME/csr/intermediate.csr.pem")
-    cmd+=(-out "$CA_INT_HOME/certs/intermediate.cert.pem")
-    db 2 "exec: $(printf "%q " "${cmd[@]}")"
-    if ! "${cmd[@]}" >"$log" 2>&1; then
-        dbcat -2 "while signing intermediate CSR" <"$log"
-        exit 1
-    fi
-    chmod 444 "$CA_INT_HOME/certs/intermediate.cert.pem" || exit 1
+  # create intermediate certificate by processing the CSR with the root CA
+  db 0 "generating intermediate CA cert..."
+  cmd=(openssl ca)
+  cmd+=(-batch)
+  cmd+=(-config openssl.cnf)
+  cmd+=(-extensions v3_intermediate_ca)
+  cmd+=(-days 3650)
+  cmd+=(-notext)
+  cmd+=(-md sha256)
+  cmd+=(-passin "env:CA_ROOT_PASS")
+  cmd+=(-in "$CA_INT_HOME/csr/intermediate.csr.pem")
+  cmd+=(-out "$CA_INT_HOME/certs/intermediate.cert.pem")
+  db 2 "exec: $(printf "%q " "${cmd[@]}")"
+  if ! "${cmd[@]}" >"$log" 2>&1; then
+    dbcat -2 "while signing intermediate CSR" <"$log"
+    exit 1
+  fi
+  chmod 444 "$CA_INT_HOME/certs/intermediate.cert.pem" || exit 1
 
-    # Make cert chain file
-    db 0 "combining certs to form chain of trust..."
-    cat "$CA_INT_HOME/certs/intermediate.cert.pem" "$CA_ROOT_HOME/certs/ca.cert.pem" >"$CA_INT_HOME/certs/ca-chain.cert.pem" || exit 1
+  # Make cert chain file
+  db 0 "combining certs to form chain of trust..."
+  cat "$CA_INT_HOME/certs/intermediate.cert.pem" "$CA_ROOT_HOME/certs/ca.cert.pem" >"$CA_INT_HOME/certs/ca-chain.cert.pem" || exit 1
 }
 
 template_ca_config_file() {
-    cat <<EOD
+  cat <<EOD
 # make_ca: OpenSSL configuration file
 
 [ ca ]

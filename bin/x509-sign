@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+#
+# Copyright (C) 2025 Mouse <mousefad@googlemail.com>
+# This software is released under the terms of the GNU GPL v3 license.
+# See the LICENSE file for details.
+#
+# Note: there are POD document tags at the end of this file.
 
 PROG_NAME='Sign a CSR with a CA'
 PROG_AUTHOR='Mouse'
@@ -14,88 +20,88 @@ INTERACTIVE=n
 DAYS=$((365 + 14))
 
 main() {
-    local getopt_tmp
-    getopt_tmp=$(getopt -o c:D:d:hV --long ca-dir:,debug:,help,valid-days:,version -- "$@") || erex 1 "Invalid usage. Try '${0##*/} -h | less -r' for help"
-    eval set -- "$getopt_tmp"
-    while true; do
-        case "$1" in
-        --ca-dir | -c)
-            export CA_HOME="$2"
-            shift 2
-            ;;
-        --debug | -D)
-            DEBUG_LEVEL="$2"
-            shift 2
-            ;;
-        --help | -h)
-            usage 0
-            return 0
-            ;;
-        --valid-days | -d)
-            DAYS="$2"
-            shift 2
-            ;;
-        --version | -V)
-            show_version
-            exit 0
-            ;;
-        --)
-            shift
-            break
-            ;;
-        *)
-            erex 1 "ERROR: unknown option: $1"
-            ;;
-        esac
-    done
+  local getopt_tmp
+  getopt_tmp=$(getopt -o c:D:d:hV --long ca-dir:,debug:,help,valid-days:,version -- "$@") || erex 1 "Invalid usage. Try '${0##*/} -h | less -r' for help"
+  eval set -- "$getopt_tmp"
+  while true; do
+    case "$1" in
+    --ca-dir | -c)
+      export CA_HOME="$2"
+      shift 2
+      ;;
+    --debug | -D)
+      DEBUG_LEVEL="$2"
+      shift 2
+      ;;
+    --help | -h)
+      usage 0
+      return 0
+      ;;
+    --valid-days | -d)
+      DAYS="$2"
+      shift 2
+      ;;
+    --version | -V)
+      show_version
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    *)
+      erex 1 "ERROR: unknown option: $1"
+      ;;
+    esac
+  done
 
-    if [ "$#" -lt 1 ]; then
-        usage 1
-    fi
+  if [ "$#" -lt 1 ]; then
+    usage 1
+  fi
 
-    CSR_PATH="$1"
-    if [ -n "$2" ]; then
-        PEM_PATH="$2"
-    else
-        PEM_PATH="${1%.csr}.pem"
-    fi
-    if [ -e "$PEM_PATH" ]; then
-        erex "Certificate file '$PEM_PATH' already exists; ABORTING"
-    fi
+  CSR_PATH="$1"
+  if [ -n "$2" ]; then
+    PEM_PATH="$2"
+  else
+    PEM_PATH="${1%.csr}.pem"
+  fi
+  if [ -e "$PEM_PATH" ]; then
+    erex "Certificate file '$PEM_PATH' already exists; ABORTING"
+  fi
 
-    [ -n "CA_INT_PASS" ] || prompt_pass -v CA_INT_PASS "Intermediate CA pass-phrase"
+  [ -n "CA_INT_PASS" ] || prompt_pass -v CA_INT_PASS "Intermediate CA pass-phrase"
 
-    sign_csr
+  sign_csr
 }
 
 sign_csr() {
-    db 0 "Generating certificate '$PEM_PATH' from CSR '$CSR_PATH' ..."
-    mk_temp log
-    cmd=(openssl ca)
-    cmd+=(-batch)
-    cmd+=(-config "$CA_HOME/int/openssl.cnf")
-    cmd+=(-extensions server_cert)
-    cmd+=(-days "$DAYS")
-    cmd+=(-notext)
-    cmd+=(-md sha256)
-    cmd+=(-passin "env:CA_INT_PASS")
-    cmd+=(-in "$CSR_PATH")
-    cmd+=(-out "$PEM_PATH")
-    db 1 "exec: $(printf "%q " "${cmd[@]}")"
-    if ! "${cmd[@]}" >"$log" 2>&1; then
-        dbcat -2 "while signing certificate:" <"$log"
-        exit 1
-    fi
+  db 0 "Generating certificate '$PEM_PATH' from CSR '$CSR_PATH' ..."
+  mk_temp log
+  cmd=(openssl ca)
+  cmd+=(-batch)
+  cmd+=(-config "$CA_HOME/int/openssl.cnf")
+  cmd+=(-extensions server_cert)
+  cmd+=(-days "$DAYS")
+  cmd+=(-notext)
+  cmd+=(-md sha256)
+  cmd+=(-passin "env:CA_INT_PASS")
+  cmd+=(-in "$CSR_PATH")
+  cmd+=(-out "$PEM_PATH")
+  db 1 "exec: $(printf "%q " "${cmd[@]}")"
+  if ! "${cmd[@]}" >"$log" 2>&1; then
+    dbcat -2 "while signing certificate:" <"$log"
+    exit 1
+  fi
 
-    db 0 "Verifying Chain of Trust..."
-    cmd=(openssl verify)
-    cmd+=(-CAfile "$CA_HOME/int/certs/ca-chain.cert.pem")
-    cmd+=("$PEM_PATH")
-    db 1 "exec: $(printf "%q " "${cmd[@]}")"
-    if ! "${cmd[@]}" >"$log" 2>&1; then
-        dbcat -2 "while verifying chain of trust:" <"$log"
-        exit 1
-    fi
+  db 0 "Verifying Chain of Trust..."
+  cmd=(openssl verify)
+  cmd+=(-CAfile "$CA_HOME/int/certs/ca-chain.cert.pem")
+  cmd+=("$PEM_PATH")
+  db 1 "exec: $(printf "%q " "${cmd[@]}")"
+  if ! "${cmd[@]}" >"$log" 2>&1; then
+    dbcat -2 "while verifying chain of trust:" <"$log"
+    exit 1
+  fi
 }
 
 source x509-include

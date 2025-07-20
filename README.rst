@@ -59,5 +59,9 @@ Still To Do
 * `x509-ca`: options for CA cert lifetimes
 
 
+License
+-------
 
+This is Free software, released under the terms of the GNU GPL v3. See
+the `LICENSE` file for more details.
 
