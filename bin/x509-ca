@@ -416,7 +416,7 @@ if path is not specified. The CA consists of two sub-directories: F<root>
 and F<int>, which contain the config, keys, certificates and state files
 required for a root authority and an intermediate (issuer) authority.
 
-These files may then be used with the x509-csr(1) and x509-sign-csr(1) 
+These files may then be used with the x509-req(1) and x509-sign(1) 
 programs to issue server and client certificates.
 
 The password for the root and intermediate authority private keys will be
@@ -540,7 +540,7 @@ Mouse <mousefad@googlemail.com>
 
 =head1 SEE ALSO
 
-x509-csr(1), x509-sign(1)
+x509-req(1), x509-sign(1)
 
 =cut
 

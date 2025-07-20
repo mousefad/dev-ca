@@ -23,7 +23,7 @@ Usage
 
 #. Edit details in `config.env`
 #. Execute `x509-ca` to generate a CA
-#. Create certificate signing requests for your servers with `x509-csr`.
+#. Create certificate signing requests for your servers with `x509-req`.
    To be secure this should be done on the servers where the certificates 
    are to be used so that the generated private key never leaves the 
    machine. The .csr file does not conrain any sensitive data and can be

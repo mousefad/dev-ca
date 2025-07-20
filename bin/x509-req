@@ -222,11 +222,11 @@ cat <<EOD >/dev/null
 
 =head1 NAME
 
-x509-csr - Generate a certficiate signing request for a server certificate
+x509-req - Create a certficiate signing request for a server certificate
 
 =head1 SYNOPSIS
 
-x509-csr [options] path.csr cn [alt [alt] ...]
+x509-req [options] path.csr cn [alt [alt] ...]
 
 =head1 DESCRIPTION
 
